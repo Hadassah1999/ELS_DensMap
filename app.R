@@ -25,10 +25,14 @@ uploadUI <- function(id) {
 uploadServer <- function(id) {
   moduleServer(id, function(input, output, session) {
     
-    data <- reactiveValues(df1 = NULL, df2 = NULL, df = NULL, text_df = NULL, ready = FALSE)
+    data <- reactiveValues(df1 = NULL, df2 = NULL, df = NULL, text_df = NULL, ready = FALSE, structures_name = NULL)
     
     observeEvent(input$submit, {
       req(input$file1, input$file2)
+      
+      # Save structure.csv file name
+      data$structures_name <- tools::file_path_sans_ext(input$file1$name)
+      
       
       read_file <- function(file) {
         df <- tryCatch(read.csv(file$datapath, stringsAsFactors = FALSE),
@@ -51,9 +55,18 @@ uploadServer <- function(id) {
       angles$Offset90 <- 90 - angles$True90
       angles$Offset180 <- 180 - angles$True180
       
+      # Confirm join condition exists
+      stopifnot("TissueID" %in% names(structures),
+                "TissueID" %in% names(angles))
+      
+      # Force to character to confirm join works
+      structures$TissueID <- as.character(structures$TissueID)
+      angles$TissueID     <- as.character(angles$TissueID)
+      
+      
       # Join structures and angles 
       df <- structures %>% 
-        left_join(angles) %>% 
+        left_join(angles, by = "TissueID") %>% 
         select(-starts_with("True"))
       
       # Apply offset by sinus
@@ -131,7 +144,6 @@ ui <- fluidPage(
   uiOutput("main_ui"),
   hr(),
   uiOutput("group_ui"),
-  uiOutput("return_button_ui"),
   uiOutput("download_buttons"),
   plotOutput("plot_tls", height = "600px")
 )
@@ -160,20 +172,7 @@ server <- function(input, output, session) {
     selectInput("group", "Select Group", choices = unique(uploaded$df$Group))
   })
   
-  # --- Return to upload button (step 2 only) ---
-  output$return_button_ui <- renderUI({
-    req(step() == 2)
-    actionButton("return_upload", "Return to Upload", class = "btn-warning")
-  })
-  
-  observeEvent(input$return_upload, {
-    step(1)
-    uploaded$ready <- FALSE
-    uploaded$df <- NULL
-    uploaded$text_df <- NULL
-    output$group_ui <- renderUI({})
-    output$download_buttons <- renderUI({})
-  })
+
   
   # --- Download buttons ---
   output$download_buttons <- renderUI({
@@ -203,7 +202,7 @@ server <- function(input, output, session) {
   # --- Download handlers ---
   output$download_plot <- downloadHandler(
     filename = function() {
-      paste0("TLS_plot_", input$group, "_", Sys.Date(), ".pdf")
+      paste0("ELS_plot_", input$group, "_", uploaded$structures_name, ".pdf")
     },
     content = function(file) {
       req(uploaded$ready, input$group)
@@ -236,7 +235,7 @@ server <- function(input, output, session) {
   
   output$download_all_plots <- downloadHandler(
     filename = function() {
-      paste0("TLS_all_groups_", Sys.Date(), ".pdf")
+      paste0("ELS_all_groups_", uploaded$structures_name, ".pdf")
     },
     content = function(file) {
       req(uploaded$ready)
